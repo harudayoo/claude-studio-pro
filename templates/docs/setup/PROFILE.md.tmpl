@@ -1,0 +1,27 @@
+# Project profile
+
+Every hook glob and doc mapping derives from this table.
+A field is not CONFIRMED until its command has been executed successfully.
+
+| Field | Value | Status |
+|---|---|---|
+| Project name | {{PROJECT_NAME}} | |
+| Stack | {{STACK_LINE}} | |
+| Package manager | {{PACKAGE_MANAGER}} | |
+| Dev command | `{{DEV_COMMAND}}` | |
+| Test command (non-watching) | `{{TEST_COMMAND}}` | |
+| Single-test command | `{{SINGLE_TEST_COMMAND}}` | |
+| Format command (fixes) | `{{FORMAT_COMMAND}}` | |
+| Type-check command | `{{TYPECHECK_COMMAND}}` | |
+| Build command | `{{BUILD_COMMAND}}` | |
+| Source roots | {{SOURCE_ROOTS}} | |
+| Front-end root | {{FRONTEND_ROOT}} | |
+| Test root | {{TEST_ROOT}} | |
+| Design token file | {{TOKEN_FILE}} | |
+| Has UI | {{HAS_UI}} | |
+
+## Verification log
+Run every command above and record its exit code here.
+
+| Command | Exit code | Notes |
+|---|---|---|

@@ -1,0 +1,30 @@
+# {{PROJECT_NAME}}
+
+{{STACK_LINE}}
+
+## Commands
+- Dev: `{{DEV_COMMAND}}`
+- Test: `{{TEST_COMMAND}}`   Single: `{{SINGLE_TEST_COMMAND}}`
+- Lint/format: `{{FORMAT_COMMAND}}`   Types: `{{TYPECHECK_COMMAND}}`
+- Build: `{{BUILD_COMMAND}}`
+
+## Layout
+- Source: `{{SOURCE_ROOTS}}`
+- Tests: `{{TEST_ROOT}}`
+- Specs and decisions: `docs/specs/`, `docs/adr/`
+
+## Non-negotiables
+- No source edits before an approved plan exists at `docs/specs/<slug>/plan.md`.
+  Check `.claude/state/gate.json`.
+- Every bug fix starts with a failing test.
+- Every schema change ships a reversible migration and a test.
+- Never edit `.env`, build output, or vendored dependencies.
+
+## Working agreement
+- Start any change with `/feature <description>`.
+- Run `/handoff` before ending a session with uncommitted work.
+- Use `/clear` between phases and between unrelated tasks.
+
+## Compact instructions
+When compacting, preserve: the gate state, decisions made this session, and
+file paths already discovered. Discard tool output and exploration transcripts.

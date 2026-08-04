@@ -1,0 +1,30 @@
+{
+  "env": {
+    "MAX_THINKING_TOKENS": "8000"
+  },
+  "permissions": {
+    "deny": [
+      "Read(./.env)", "Read(./.env.*)", "Read(./**/*.pem)", "Read(./**/*.key)",
+      "Write(./.env)", "Write(./.env.*)",
+      "Bash(rm -rf /*)", "Bash(git push --force*)"
+    ],
+    "allow": [
+      "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git branch*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Edit|Write",
+        "hooks": [{ "type": "command", "command": ".claude/hooks/gate-check.sh" }] },
+      { "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": ".claude/hooks/filter-output.sh" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write",
+        "hooks": [{ "type": "command", "command": ".claude/hooks/post-edit.sh" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": ".claude/hooks/doc-check.sh" }] }
+    ]
+  }
+}

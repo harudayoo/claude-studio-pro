@@ -14,7 +14,10 @@ error states.
 
 **Responsive.** Breakpoints 390 / 768 / 1024 / 1280 / 1536. Mobile is a
 designed layout, not a narrowed desktop. No horizontal scroll at 320px.
-Touch targets at least 44x44px.
+Touch targets at least 44x44px. A data table that just overflows silently
+below its breakpoint is a defect, not an acceptable tradeoff — it needs a
+designed fallback (stacked cards, a reduced column set, or horizontal scroll
+with a visible affordance).
 
 **Accessibility.** WCAG 2.2 AA. Semantic HTML before ARIA. Visible focus
 everywhere. Contrast 4.5:1 for body text, 3:1 for large text and UI

@@ -2,9 +2,14 @@
 
 A lean, Pro-plan-sized development pipeline for Claude Code.
 
-Seven subagents, five skills, four path-scoped rules, four enforcement hooks.
+Seven subagents, seven skills, five path-scoped rules, four enforcement hooks.
 Every change goes through **Plan → Critique → Test → Create → Verify → Document**,
 and no gate closes on an assertion — each one closes on a file.
+
+Code quality without a working pipeline behind it doesn't ship: `devops.md`
+and the `ci-scaffold` / `security-audit` skills exist so that what this
+pipeline enforces inside Claude Code is also verified independently, on every
+push, by CI — not just asserted in a session. See "DevSecOps coverage" below.
 
 Designed for the Claude **Pro** plan, where Opus and Sonnet share one usage
 pool. It uses one Opus agent, once per feature. It works fine on Max too; it
@@ -113,7 +118,7 @@ quietly.
 ```
 
 Exercises every hook with synthetic input and prints a pass/fail table. Expect
-26 passing checks. Run it again after any change to a hook or the profile.
+33 passing checks. Run it again after any change to a hook or the profile.
 
 **A hook you have not watched fire is a hook you do not have.**
 
@@ -134,7 +139,8 @@ Then, inside Claude Code:
 ├── agents/          planner, critic, test-designer, implementer,
 │                    reviewer, qa-runner, doc-writer
 ├── skills/          /feature /handoff /codebase-map /web-audit /report
-├── rules/           backend, frontend, testing, security  (path-scoped)
+│                    /ci-scaffold /security-audit
+├── rules/           backend, frontend, testing, security, devops  (path-scoped)
 ├── hooks/           gate-check, filter-output, post-edit, doc-check
 ├── agent-memory/    committed — this is the institutional memory
 └── state/           gate.json, doc-map.json
@@ -144,6 +150,7 @@ docs/
 ├── specs/<slug>/    plan, critique, acceptance, verification, evidence/
 ├── handoff/
 └── reports/
+.github/workflows/   ci.yml (+ e2e.yml if HAS_UI) — written by /ci-scaffold, not by install.sh
 CLAUDE.md            (or CLAUDE.studio.md if you already had one)
 ```
 
@@ -179,13 +186,51 @@ than a Claude Code plugin — plugin subagents ignore the `mcpServers` field.
 
 `filter-output` is the largest token saving here: it rewrites test and build
 commands so only failures return to the model, turning tens of thousands of
-tokens into hundreds.
+tokens into hundreds. It also filters the profile's dependency-audit command,
+watching for `vulnerabilit` in addition to `FAIL`/`ERROR` — an audit finding
+doesn't announce itself the way a test failure does, and a filter that only
+knew the test vocabulary would quietly eat a real high/critical finding.
+
+---
+
+## DevSecOps coverage
+
+Session-level rules are advisory the moment the session ends. `devops.md` and
+two skills exist so this pipeline's standards are also checked by something
+that runs whether or not anyone is in a Claude Code session:
+
+- **`.claude/rules/devops.md`** — loads whenever a workflow, Dockerfile, or
+  compose file is touched. Covers promotion-gated triggers, ephemeral test
+  infrastructure, reading full (not truncated) audit output, severity-gated
+  dependency scanning, the static-analysis-baseline pattern for suppressing
+  an existing false-positive backlog without lowering the check, and treating
+  an unfixable pinned-dependency CVE as tracked debt rather than a silenced
+  gate.
+- **`/ci-scaffold`** — run once, early. Reads the confirmed commands in
+  `docs/setup/PROFILE.md` and writes a real `.github/workflows/ci.yml`
+  (lint, type-check, dependency audit, test, build) plus `e2e.yml` if the
+  project has a UI and a browser test runner. This install script sets up
+  Claude Code's side of the pipeline; it does not touch your CI provider —
+  `/ci-scaffold` is what closes that gap, and it only proposes commands
+  already confirmed in the profile, never a guessed one.
+- **`/security-audit`** — run any time, not only at the verify gate. Runs the
+  profile's dependency-audit command in full, scans the diff for
+  committed-secret patterns, and checks changed authorisation code against
+  two recurring failure classes: a raw permission check bypassing a resolver
+  that exists specifically to apply an override, and a query that crosses a
+  tenant/owner boundary without a server-side scope filter.
+
+`security.md`'s **Authorisation source of truth** and **Cross-tenant scope**
+rules are the same two patterns generalised — `/security-audit` is the
+callable check, the rule is what `reviewer` and `implementer` load
+automatically while a session is open.
 
 ---
 
 ## Daily use
 
 ```
+/ci-scaffold                        # once, early — writes real CI, not just rules
 /clear
 /feature add invoice CSV export     # → planner writes plan.md
                                     #   you read and approve it
@@ -196,6 +241,7 @@ run the test phase                  # → red tests + evidence
 run the create phase                # → green tests + evidence
 /clear
 run the verify phase                # → reviewer, then qa-runner
+/security-audit                     # anything touching auth, data scope, or a dependency
 /web-audit                          # UI work only
 run the document phase
 /handoff
@@ -302,6 +348,17 @@ deliberately.
   not whether the *right* doc changed. The monthly `/report` catches the rest.
 - The `report` script needs `python3`. Skip it if you do not have it; nothing
   else depends on it.
+- `/ci-scaffold` proposes a workflow from the profile's confirmed commands; it
+  does not run or validate it. Commit it and watch the first real run before
+  trusting it as a merge gate.
+- The dependency-audit command is detected per ecosystem
+  (`composer audit`, `npm`/`pnpm`/`yarn audit`, `pip-audit`, `cargo audit`,
+  `govulncheck`). Some of these are not installed by default for their
+  ecosystem (`pip-audit`, `cargo-audit`) — the profile will still record the
+  command; installing the tool itself is on you.
+- `security.md`'s scope-boundary and resolver-pattern rules describe two
+  *shapes* of authorisation bug, not a scanner. They tell a reviewing agent
+  what to look for; they do not replace a real SAST/dependency tool.
 - Claude Code changes weekly. If a frontmatter field or command in here stops
   matching `code.claude.com/docs`, the docs win. Open an issue.
 

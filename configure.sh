@@ -63,6 +63,7 @@ SINGLE_TEST_COMMAND="$(field 'Single-test command')"
 FORMAT_COMMAND="$(field 'Format command (fixes)')"
 TYPECHECK_COMMAND="$(field 'Type-check command')"
 BUILD_COMMAND="$(field 'Build command')"
+DEPENDENCY_AUDIT_COMMAND="$(field 'Dependency audit command')"
 SOURCE_ROOTS="$(field 'Source roots')"
 FRONTEND_ROOT="$(field 'Front-end root')"
 TEST_ROOT="$(field 'Test root')"
@@ -90,6 +91,7 @@ c_dim "  test:      $TEST_COMMAND"
 c_dim "  single:    $SINGLE_TEST_COMMAND"
 c_dim "  format:    $FORMAT_COMMAND"
 c_dim "  typecheck: $TYPECHECK_COMMAND"
+c_dim "  audit:     $DEPENDENCY_AUDIT_COMMAND"
 c_dim "  protected: $SOURCE_ROOTS_REGEX"
 echo
 
@@ -127,6 +129,7 @@ subst() {
     "FORMAT_COMMAND=$FORMAT_COMMAND" \
     "TYPECHECK_COMMAND=$TYPECHECK_COMMAND" \
     "BUILD_COMMAND=$BUILD_COMMAND" \
+    "DEPENDENCY_AUDIT_COMMAND=$DEPENDENCY_AUDIT_COMMAND" \
     "SOURCE_ROOTS=$SOURCE_ROOTS" \
     "SOURCE_ROOTS_REGEX=$SOURCE_ROOTS_REGEX" \
     "FRONTEND_ROOT=$FRONTEND_ROOT" \

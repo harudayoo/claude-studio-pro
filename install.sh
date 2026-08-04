@@ -101,7 +101,7 @@ detect_stack() {
   DEV_CMD="NEEDS_REVIEW"; TEST_CMD="NEEDS_REVIEW"; SINGLE_TEST_CMD="NEEDS_REVIEW"
   FORMAT_CMD="NEEDS_REVIEW"; TYPECHECK_CMD="NEEDS_REVIEW"; BUILD_CMD="NEEDS_REVIEW"
   SOURCE_ROOTS="NEEDS_REVIEW"; FRONTEND_ROOT="NEEDS_REVIEW"; TEST_ROOT="NEEDS_REVIEW"
-  TOKEN_FILE="NEEDS_REVIEW"
+  TOKEN_FILE="NEEDS_REVIEW"; AUDIT_CMD="NEEDS_REVIEW"
 
   if [ -f "$TARGET/composer.json" ]; then
     STACK="PHP"; PKG="composer"
@@ -111,6 +111,7 @@ detect_stack() {
     [ -f "$TARGET/vendor/bin/pint" ] && FORMAT_CMD="./vendor/bin/pint"
     [ -f "$TARGET/vendor/bin/phpstan" ] && TYPECHECK_CMD="./vendor/bin/phpstan analyse"
     SOURCE_ROOTS="app"; TEST_ROOT="tests"
+    AUDIT_CMD="composer audit"
   fi
 
   if [ -f "$TARGET/package.json" ]; then
@@ -159,6 +160,12 @@ detect_stack() {
       [ -d "$TARGET/$d" ] && { TEST_ROOT="$d"; break; }
     done
     HAS_UI="probably yes"
+    node_audit_cmd="$PKG audit"; [ "$PKG" = "yarn" ] && node_audit_cmd="yarn audit"
+    if [ "$AUDIT_CMD" = "NEEDS_REVIEW" ]; then
+      AUDIT_CMD="$node_audit_cmd"
+    else
+      AUDIT_CMD="$AUDIT_CMD && $node_audit_cmd"
+    fi
   fi
 
   if [ -f "$TARGET/pyproject.toml" ] || [ -f "$TARGET/requirements.txt" ]; then
@@ -166,10 +173,13 @@ detect_stack() {
     PKG="${PKG:-pip}"; TEST_CMD="pytest"; SINGLE_TEST_CMD="pytest -k"
     [ -d "$TARGET/src" ] && SOURCE_ROOTS="src"
     TEST_ROOT="tests"
+    [ "$AUDIT_CMD" = "NEEDS_REVIEW" ] && AUDIT_CMD="pip-audit"
   fi
 
-  [ -f "$TARGET/go.mod" ]    && { STACK="Go";   TEST_CMD="go test ./..."; BUILD_CMD="go build ./..."; }
-  [ -f "$TARGET/Cargo.toml" ] && { STACK="Rust"; TEST_CMD="cargo test";   BUILD_CMD="cargo build"; }
+  [ -f "$TARGET/go.mod" ]    && { STACK="Go";   TEST_CMD="go test ./..."; BUILD_CMD="go build ./..."
+                                   [ "$AUDIT_CMD" = "NEEDS_REVIEW" ] && AUDIT_CMD="govulncheck ./..."; }
+  [ -f "$TARGET/Cargo.toml" ] && { STACK="Rust"; TEST_CMD="cargo test";   BUILD_CMD="cargo build"
+                                   [ "$AUDIT_CMD" = "NEEDS_REVIEW" ] && AUDIT_CMD="cargo audit"; }
 
   TOKEN_FILE="NEEDS_REVIEW"
   for f in src/styles/tokens.css src/tokens.css resources/css/tokens.css \
@@ -244,24 +254,32 @@ if [ "$NO_DOCS" = 0 ]; then
 fi
 
 # ------------------------------------------------------------------ render
+# Escape a value for safe use as a sed *replacement* string: backslash first
+# (so later steps don't double-escape what they introduce), then & (whole-
+# match in sed replacement syntax), then | (our delimiter). Without this, a
+# value containing either — e.g. a combined "composer audit && npm audit" —
+# corrupts every other placeholder in the same sed invocation.
+esc_repl() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/&/\\\&/g' -e 's/|/\\|/g'; }
+
 render() {  # render <template> <destination>
   local tpl="$1" dst="$2"
   if [ "$DRY_RUN" = 1 ]; then c_dim "  would render $(basename "$tpl") -> ${dst#$TARGET/}"; return; fi
   sed \
-    -e "s|{{PROJECT_NAME}}|$PROJECT_NAME|g" \
-    -e "s|{{STACK_LINE}}|$STACK|g" \
-    -e "s|{{PACKAGE_MANAGER}}|${PKG:-n/a}|g" \
-    -e "s|{{DEV_COMMAND}}|$DEV_CMD|g" \
-    -e "s|{{TEST_COMMAND}}|$TEST_CMD|g" \
-    -e "s|{{SINGLE_TEST_COMMAND}}|$SINGLE_TEST_CMD|g" \
-    -e "s|{{FORMAT_COMMAND}}|$FORMAT_CMD|g" \
-    -e "s|{{TYPECHECK_COMMAND}}|$TYPECHECK_CMD|g" \
-    -e "s|{{BUILD_COMMAND}}|$BUILD_CMD|g" \
-    -e "s|{{SOURCE_ROOTS}}|$SOURCE_ROOTS|g" \
-    -e "s|{{FRONTEND_ROOT}}|$FRONTEND_ROOT|g" \
-    -e "s|{{TEST_ROOT}}|$TEST_ROOT|g" \
-    -e "s|{{TOKEN_FILE}}|$TOKEN_FILE|g" \
-    -e "s|{{HAS_UI}}|$HAS_UI|g" \
+    -e "s|{{PROJECT_NAME}}|$(esc_repl "$PROJECT_NAME")|g" \
+    -e "s|{{STACK_LINE}}|$(esc_repl "$STACK")|g" \
+    -e "s|{{PACKAGE_MANAGER}}|$(esc_repl "${PKG:-n/a}")|g" \
+    -e "s|{{DEV_COMMAND}}|$(esc_repl "$DEV_CMD")|g" \
+    -e "s|{{TEST_COMMAND}}|$(esc_repl "$TEST_CMD")|g" \
+    -e "s|{{SINGLE_TEST_COMMAND}}|$(esc_repl "$SINGLE_TEST_CMD")|g" \
+    -e "s|{{FORMAT_COMMAND}}|$(esc_repl "$FORMAT_CMD")|g" \
+    -e "s|{{TYPECHECK_COMMAND}}|$(esc_repl "$TYPECHECK_CMD")|g" \
+    -e "s|{{BUILD_COMMAND}}|$(esc_repl "$BUILD_CMD")|g" \
+    -e "s|{{DEPENDENCY_AUDIT_COMMAND}}|$(esc_repl "$AUDIT_CMD")|g" \
+    -e "s|{{SOURCE_ROOTS}}|$(esc_repl "$SOURCE_ROOTS")|g" \
+    -e "s|{{FRONTEND_ROOT}}|$(esc_repl "$FRONTEND_ROOT")|g" \
+    -e "s|{{TEST_ROOT}}|$(esc_repl "$TEST_ROOT")|g" \
+    -e "s|{{TOKEN_FILE}}|$(esc_repl "$TOKEN_FILE")|g" \
+    -e "s|{{HAS_UI}}|$(esc_repl "$HAS_UI")|g" \
     "$tpl" > "$dst"
 }
 

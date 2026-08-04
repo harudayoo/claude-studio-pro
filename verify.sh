@@ -85,9 +85,14 @@ for n in planner critic test-designer implementer reviewer doc-writer; do
 done
 [ -f .claude/agents/qa-runner.md ] && pass "agent: qa-runner" \
   || printf '  \033[33mSKIP\033[0m qa-runner (removed: no UI)\n'
-for s in feature handoff codebase-map report; do
+for s in feature handoff codebase-map report ci-scaffold security-audit; do
   [ -f ".claude/skills/$s/SKILL.md" ] && pass "skill: /$s" || fail "skill: /$s missing"
 done
+for r in backend security testing devops; do
+  [ -f ".claude/rules/$r.md" ] && pass "rule: $r.md" || fail "rule: $r.md missing"
+done
+[ -f .claude/rules/frontend.md ] && pass "rule: frontend.md" \
+  || printf '  \033[33mSKIP\033[0m frontend.md (removed: no UI)\n'
 
 printf '\n\033[1m%d passed, %d failed\033[0m\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

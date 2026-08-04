@@ -24,3 +24,8 @@ will touch — an N+1 in a request path is a defect, not a nit.
 **Logging.** Structured. No PII, tokens, or secrets in log lines, ever.
 
 **Idempotency.** Anything a client can retry must be safe to retry.
+
+**Async work.** Anything that sends an email/SMS/push notification or does
+bulk processing is queued, not run inline in the request cycle — a slow
+third-party call in a request handler is a defect, not a nit, once it can be
+queued instead.

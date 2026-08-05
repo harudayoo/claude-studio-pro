@@ -431,6 +431,54 @@ to definition" replaces a grep plus reading three candidate files.
 Two always-on MCP servers maximum. Everything heavier gets scoped to a single
 agent's frontmatter, the way `qa-runner` does with Playwright.
 
+### Design-taste skills
+
+A family of third-party skills exists to stop AI-generated UI regressing to the
+same generic default. They all install as ordinary `.claude/skills/<name>/`
+entries and are fully compatible with this pipeline — they supply *taste*,
+which is the one thing the pipeline deliberately does not encode.
+
+| Skill | Best at | Licence |
+|---|---|---|
+| [`anthropic/frontend-design`](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/frontend-design) | Committing to an aesthetic direction before writing code | Official |
+| [`pbakaus/impeccable`](https://github.com/pbakaus/impeccable) | Design-system enforcement, 59 detector rules, live in-browser editing | Apache-2.0 |
+| [`nextlevelbuilder/ui-ux-pro-max-skill`](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) | Searchable style / palette / font-pairing databases and a design-system generator | MIT |
+| [`nxpatterns/claude-taste-skill`](https://github.com/nxpatterns/claude-taste-skill) | A lighter all-rounder, with per-style variants | MIT |
+| [`emilkowalski/skills`](https://github.com/emilkowalski/skills) (`emil-design-eng`) | Motion and micro-interaction: easing, duration, what should *not* animate | MIT |
+
+**Install one or two, not five.** They overlap heavily and give contradictory
+direction — one rejects Inter outright, another ships a font-pairing database
+that recommends it. Competing taste is worse than no taste, and every skill
+description consumes part of the listing budget Claude Code caps at roughly 1%
+of the context window.
+
+A reasonable pick: `frontend-design` for direction on any tier, plus
+`emil-design-eng` on Max/Max 20x if the product has real motion. Add a heavier
+one only when you can point at UI it would have improved.
+
+**Wire them into the agents that need them, not the session.** The blueprint's
+pattern is `skills:` frontmatter, which preloads the skill into one agent's
+context instead of every session's listing:
+
+```yaml
+# .claude/agents/ui-designer.md
+skills:
+  - design-tokens
+  - frontend-design
+```
+
+**Reconcile them with the token layer.** These skills generate their own colour
+and type systems; `.claude/rules/frontend.md` says every visual value comes from
+`{{TOKEN_FILE}}` and a raw hex is a review blocker. Let the design skill produce
+the *system* and write it into your token file — then components still consume
+tokens. A design skill that writes literals straight into components defeats the
+rule, and `code-reviewer` will correctly flag it.
+
+Studio-owned files and third-party ones stay separate: `install.sh --force`
+preserves foreign hook entries and foreign skills, and `--uninstall` removes
+only what the tier's manifest listed. A design plugin's hook survives a pipeline
+upgrade.
+
 ---
 
 ## Updating

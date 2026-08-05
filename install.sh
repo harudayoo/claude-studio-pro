@@ -189,14 +189,55 @@ choose_plan() {
 if [ "$UNINSTALL" = 1 ]; then
   c_yel "Uninstalling claude-studio from $TARGET"
   PREV="$(installed_plan || true)"
-  [ -n "$PREV" ] && c_dim "  installed tier: $PREV"
-  for p in .claude/agents .claude/skills .claude/rules .claude/hooks \
-           .claude/state .claude/workflows; do
-    backup_if_exists "$TARGET/$p"
-    run "rm -rf '$TARGET/$p'"
-  done
+
+  # Remove only what this tier installed. Blanket-removing .claude/skills and
+  # .claude/agents would take third-party skills and agents with it — a design
+  # plugin, a house agent — which is not what "uninstall claude-studio" means.
+  if [ -n "$PREV" ] && plan_is_valid "$PREV" && [ -f "$SRC/templates/tiers/$PREV/manifest.conf" ]; then
+    c_dim "  installed tier: $PREV — removing only what it owned"
+    # shellcheck source=/dev/null
+    . "$SRC/templates/tiers/$PREV/manifest.conf"
+    for a in $TIER_AGENTS; do
+      backup_if_exists "$TARGET/.claude/agents/$a.md"; run "rm -f '$TARGET/.claude/agents/$a.md'"
+    done
+    for s in $TIER_SKILLS; do
+      backup_if_exists "$TARGET/.claude/skills/$s"; run "rm -rf '$TARGET/.claude/skills/$s'"
+    done
+    for r in $TIER_RULES; do
+      backup_if_exists "$TARGET/.claude/rules/$r.md"; run "rm -f '$TARGET/.claude/rules/$r.md'"
+    done
+    for p in .claude/hooks .claude/state .claude/workflows; do
+      backup_if_exists "$TARGET/$p"; run "rm -rf '$TARGET/$p'"
+    done
+    # Drop the now-empty studio directories, but never a directory someone
+    # else still has files in.
+    for d in .claude/agents .claude/skills .claude/rules; do
+      [ "$DRY_RUN" = 1 ] || rmdir "$TARGET/$d" 2>/dev/null || true
+    done
+    if [ -d "$TARGET/.claude/skills" ] || [ -d "$TARGET/.claude/agents" ]; then
+      c_yel "  Left in place (not installed by claude-studio):"
+      for d in agents skills rules; do
+        [ -d "$TARGET/.claude/$d" ] || continue
+        for f in "$TARGET/.claude/$d/"*; do
+          [ -e "$f" ] && c_dim "    .claude/$d/$(basename "$f")"
+        done
+      done
+    fi
+  else
+    c_yel "  No tier recorded in .claude/state/studio.json."
+    c_dim "  Falling back to removing the whole studio directory set. Anything"
+    c_dim "  third-party under .claude/agents or .claude/skills goes too — it is"
+    c_dim "  all in the backup."
+    for p in .claude/agents .claude/skills .claude/rules .claude/hooks \
+             .claude/state .claude/workflows; do
+      backup_if_exists "$TARGET/$p"
+      run "rm -rf '$TARGET/$p'"
+    done
+  fi
+
   c_grn "Removed. Backup at ${BACKUP#$TARGET/}"
   c_dim "docs/, CLAUDE.md and settings.json were left alone — remove by hand if you want them gone."
+  c_dim "settings.json still references .claude/hooks/*.sh; drop those entries too."
   exit 0
 fi
 
@@ -501,14 +542,20 @@ if [ ! -f "$S" ]; then
 elif command -v jq >/dev/null 2>&1; then
   backup_if_exists "$S"
   if [ "$DRY_RUN" = 0 ]; then
-    jq -s '.[0] * .[1]
-           | .permissions.deny  = ((.[0].permissions.deny  // []) + (.[1].permissions.deny  // []) | unique)
-           | .permissions.allow = ((.[0].permissions.allow // []) + (.[1].permissions.allow // []) | unique)' \
-       "$S" "$S_TMPL" > "$S.new" 2>/dev/null \
-      && mv "$S.new" "$S" \
-      || { rm -f "$S.new"; cp "$S_TMPL" "$TARGET/.claude/settings.studio.json"
-           c_yel "  merge failed — wrote .claude/settings.studio.json instead. Merge by hand."; }
-    c_dim "  merged (hooks from the template win; permissions are unioned)"
+    # Never redirect jq's stderr to /dev/null here. A silent merge failure that
+    # falls back to settings.studio.json looks like a design decision rather
+    # than a bug, which is exactly how the previous one survived so long.
+    if jq -s -f "$SRC/templates/common/merge-settings.jq" \
+         "$S" "$S_TMPL" > "$S.new" 2>"$S.err"; then
+      mv "$S.new" "$S"; rm -f "$S.err"
+      c_dim "  merged (studio hooks win; foreign hooks and permissions are kept)"
+    else
+      c_yel "  merge failed:"
+      sed 's/^/    /' "$S.err" >&2
+      rm -f "$S.new" "$S.err"
+      cp "$S_TMPL" "$TARGET/.claude/settings.studio.json"
+      c_yel "  wrote .claude/settings.studio.json instead. Merge by hand."
+    fi
   fi
 else
   run "cp '$S_TMPL' '$TARGET/.claude/settings.studio.json'"

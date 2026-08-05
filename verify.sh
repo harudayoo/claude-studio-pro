@@ -13,7 +13,7 @@ set -uo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="$(pwd)"
 [ "${1:-}" = "--target" ] && { TARGET="$(cd "$2" && pwd)"; shift 2; }
-cd "$TARGET"
+cd "$TARGET" || { echo "cannot enter $TARGET" >&2; exit 1; }
 
 PASS=0; FAIL=0
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }

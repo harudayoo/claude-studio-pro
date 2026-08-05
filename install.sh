@@ -308,7 +308,7 @@ detect_stack() {
         test)
           # A watching test script would hang the filter hook.
           case "$v" in
-            *--watch*|*watch*|*jest\ --watch*|vitest)
+            *watch*|vitest)
               TEST_CMD="NEEDS_REVIEW  # '$PKG run test' looks like a WATCHER" ;;
             *) TEST_CMD="$PKG run test" ;;
           esac ;;
@@ -515,12 +515,32 @@ render() {  # render <template> <destination>
 }
 
 c_grn "3. Rendering profile"
+# PROFILE.md is user data — every value in it was confirmed by running a
+# command. --force must NOT restore it to NEEDS_REVIEW: configure.sh would
+# then refuse to run, every hook would stay on placeholders, and the upgrade
+# path documented in the README would silently un-configure the pipeline.
 if [ "$NO_DOCS" = 0 ]; then
-  if [ -f "$TARGET/docs/setup/PROFILE.md" ] && [ "$FORCE" = 0 ]; then
-    c_dim "  docs/setup/PROFILE.md exists — left alone"
-  else
-    backup_if_exists "$TARGET/docs/setup/PROFILE.md"
+  if [ ! -f "$TARGET/docs/setup/PROFILE.md" ]; then
     render "$SRC/templates/common/docs/setup/PROFILE.md.tmpl" "$TARGET/docs/setup/PROFILE.md"
+  else
+    c_dim "  docs/setup/PROFILE.md exists — left alone (it holds confirmed values)"
+    if [ "$FORCE" = 1 ] && [ "$DRY_RUN" = 0 ]; then
+      render "$SRC/templates/common/docs/setup/PROFILE.md.tmpl" "$TARGET/docs/setup/PROFILE.studio.md"
+      # Surface fields this version expects that the existing profile lacks.
+      new_fields=""
+      while IFS= read -r label; do
+        grep -qF "| $label |" "$TARGET/docs/setup/PROFILE.md" || new_fields="$new_fields\n    - $label"
+      done < <(sed -n 's/^| \([^|]*[^ |]\) *|.*|.*|$/\1/p' "$TARGET/docs/setup/PROFILE.studio.md")
+      if [ -n "$new_fields" ]; then
+        c_yel "  This version's profile has fields yours does not:"
+        printf "%b\n" "$new_fields"
+        c_dim "    Add them to docs/setup/PROFILE.md, confirm each, then re-run configure.sh."
+        c_dim "    A rendered copy is at docs/setup/PROFILE.studio.md."
+      else
+        rm -f "$TARGET/docs/setup/PROFILE.studio.md"
+      fi
+    fi
+    c_dim "  To start the profile over, delete it and re-run."
   fi
 fi
 
@@ -601,7 +621,7 @@ if [ "$DRY_RUN" = 0 ]; then
   grep -rl '{{[A-Z_]*}}' "$TARGET/.claude" 2>/dev/null | sed "s|$TARGET/|  |" || echo "  none"
 fi
 echo
-cat <<NEXT
+cat <<__NEXTSTEPS__
 NEXT STEPS
 
   1. Open docs/setup/PROFILE.md. Fill every NEEDS_REVIEW field.
@@ -625,7 +645,7 @@ NEXT STEPS
   6. Start your first change:
         $TIER_ENTRY_COMMAND
 
-NEXT
+__NEXTSTEPS__
 if [ "$PLAN" = "max20x" ]; then
   c_dim "Max 20x notes:"
   c_dim "  · Telemetry is wired but OFF. Set CLAUDE_CODE_ENABLE_TELEMETRY to \"1\" in"

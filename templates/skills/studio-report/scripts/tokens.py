@@ -91,9 +91,9 @@ def merged_changes(period: str) -> int:
         out = subprocess.run(
             ['git', 'log', '--merges', '--oneline',
              f'--since={start:%Y-%m-%d}', f'--until={end:%Y-%m-%d}'],
-            capture_output=True, text=True, timeout=30).stdout
+            capture_output=True, text=True, timeout=30, check=False).stdout
         return len([l for l in out.splitlines() if l.strip()])
-    except Exception:
+    except (OSError, ValueError, subprocess.SubprocessError):
         return 0
 
 

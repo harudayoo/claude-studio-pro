@@ -19,9 +19,9 @@ def git_epoch(root: Path, rel: str) -> int:
     try:
         r = subprocess.run(
             ['git', '-C', str(root), 'log', '-1', '--format=%ct', '--', rel],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True, text=True, timeout=30, check=False)
         return int(r.stdout.strip())
-    except (ValueError, Exception):
+    except (OSError, ValueError, subprocess.SubprocessError):
         return 0
 
 

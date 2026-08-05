@@ -201,6 +201,19 @@ Then, inside Claude Code:
 /context     # pre-prompt total should sit under ~15% of the window
 ```
 
+### Three test layers
+
+| Script | Checks | Run it |
+|---|---|---|
+| `./verify.sh --target .` | one **install** — hooks fire, inventory matches the tier, budget, hook audit | after every install, configure, or hook edit |
+| `./qa.sh` | the **templates** — frontmatter, manifest integrity, placeholder coverage, docs-vs-manifest drift | before changing this repo, and in CI |
+| `./test/integration.sh` | the **lifecycle** — six stacks, upgrade, tier switch, uninstall, degraded environments | before a release |
+
+`qa.sh` is deliberately strict about failures that are invisible at install time
+and expensive later: an agent whose `name:` does not match its filename never
+gets delegated to, a duplicate name silently shadows one definition, and a
+placeholder nothing substitutes leaves a hook inert forever.
+
 ---
 
 ## What gets installed
@@ -519,6 +532,16 @@ cd /path/to/project && ~/.claude-studio/install.sh --target . --force
 With no `--plan`, the installer reuses the tier recorded in
 `.claude/state/studio.json`. It backs up before replacing. Your `PROFILE.md`,
 `CLAUDE.md`, `agent-memory/` and everything under `docs/specs/` are left alone.
+
+`--force` never resets `docs/setup/PROFILE.md` — every value in it was confirmed
+by running a command, so it is your data. If a newer version of the toolkit adds
+a profile field, the installer names it and writes a fresh render alongside as
+`PROFILE.studio.md` rather than overwriting yours. To start the profile over,
+delete it and re-run.
+
+Always run `verify.sh` after an upgrade. Studio hooks fail **closed**: an
+unconfigured `gate-check.sh` refuses source writes rather than waving them
+through, so a half-finished upgrade is loud instead of silent.
 
 ## Uninstalling
 

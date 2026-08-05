@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 IGNORE = {'.git', 'node_modules', 'vendor', 'dist', 'build', '__pycache__',
@@ -42,8 +43,8 @@ def churn(root: Path, since='1 month ago'):
         out = subprocess.run(
             ['git', '-C', str(root), 'log', f'--since={since}',
              '--name-only', '--pretty=format:'],
-            capture_output=True, text=True, timeout=60).stdout
-    except Exception:
+            capture_output=True, text=True, timeout=60, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
         return {}
     return dict(Counter(l for l in out.splitlines() if l.strip()).most_common(30))
 
@@ -64,8 +65,7 @@ def main():
     hotspots = [p for p in churned if p in largest_paths]
 
     report = {
-        'generated': subprocess.run(['date', '-Iseconds'], capture_output=True,
-                                    text=True).stdout.strip(),
+        'generated': datetime.now(timezone.utc).isoformat(timespec='seconds'),
         'totals': {'files': len(files), 'lines': sum(f['lines'] for f in files)},
         'by_extension': dict(by_ext.most_common()),
         'by_module': {k: v for k, v in sorted(by_dir.items(), key=lambda x: -x[1]['lines'])},

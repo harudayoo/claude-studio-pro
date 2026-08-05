@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+#
+# claude-studio repository self-test
+#
+# verify.sh checks an INSTALL. This checks the TEMPLATES — the things an
+# install is built from. Run it before every release and in CI.
+#
+# It is deliberately strict about the failures that are invisible at install
+# time and expensive later:
+#   - an agent whose `name:` does not match its filename never gets delegated to
+#   - a duplicate agent name silently shadows one of them
+#   - a placeholder nothing substitutes leaves a hook inert forever
+#   - a manifest count that drifts from the README makes the docs a liability
+#
+set -uo pipefail
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SRC" || exit 1
+
+PASS=0; FAIL=0; WARN=0
+pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
+fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
+warn() { printf '  \033[33mWARN\033[0m %s\n' "$1"; WARN=$((WARN+1)); }
+head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
+
+VALID_PLANS="pro max max20x"
+VALID_MODELS="haiku sonnet opus"
+
+# Read a scalar from a markdown file's YAML frontmatter.
+fm() {  # fm <file> <key>
+  sed -n '/^---$/,/^---$/p' "$1" | sed -n "s/^$2:[[:space:]]*//p" | head -1
+}
+
+printf '\033[1mclaude-studio repository self-test\033[0m\n'
+printf '\033[2m%s\033[0m\n' "$SRC"
+
+# ---------------------------------------------------------------- 1. syntax
+head_ "1. Syntax"
+for f in install.sh configure.sh verify.sh qa.sh templates/common/hooks/*.sh; do
+  bash -n "$f" 2>/dev/null && pass "bash: $(basename "$f")" || fail "bash: $f"
+done
+if command -v python3 >/dev/null 2>&1; then
+  for f in templates/skills/*/scripts/*.py; do
+    python3 -m py_compile "$f" 2>/dev/null && pass "python: $(basename "$f")" || fail "python: $f"
+  done
+fi
+if command -v jq >/dev/null 2>&1; then
+  echo '[{},{}]' | jq -f templates/common/merge-settings.jq >/dev/null 2>&1 \
+    && pass "jq: merge-settings.jq" || fail "jq: merge-settings.jq does not parse"
+  while IFS= read -r f; do
+    jq empty "$f" 2>/dev/null && pass "json: ${f#templates/}" || fail "json: $f is not valid JSON"
+  done < <(find templates \( -name '*.json' -o -name '*.json.tmpl' \) -print)
+fi
+
+# ------------------------------------------------------------- 2. agent pool
+head_ "2. Agent definitions"
+declare -A SEEN_NAME
+for f in templates/agents/*.md; do
+  b="$(basename "$f" .md)"
+  n="$(fm "$f" name)"
+  [ "$n" = "$b" ] || fail "$b: frontmatter name is '$n' — delegation resolves by name, so it must match the filename"
+  # A duplicate name shadows one definition with no error anywhere.
+  if [ -n "${SEEN_NAME[$n]:-}" ]; then
+    fail "duplicate agent name '$n' in $b.md and ${SEEN_NAME[$n]}"
+  else
+    SEEN_NAME[$n]="$b.md"
+  fi
+  d="$(fm "$f" description)"
+  [ -n "$d" ] || fail "$b: no description — it will never auto-trigger"
+  [ ${#d} -ge 40 ] || warn "$b: description is only ${#d} chars; delegation accuracy depends on it"
+  m="$(fm "$f" model)"
+  case " $VALID_MODELS " in
+    *" $m "*) ;;
+    *) fail "$b: model '$m' is not one of: $VALID_MODELS" ;;
+  esac
+  [ -n "$(fm "$f" tools)" ] || fail "$b: no tools declared"
+done
+[ "$FAIL" = 0 ] && pass "$(ls templates/agents/*.md | wc -l) agents: names, descriptions, models and tools all well-formed"
+
+head_ "3. Read-only agents cannot write"
+# An agent the pipeline calls "read-only" that can still write is a silent
+# violation of the verify-phase contract.
+for b in code-reviewer reviewer security-auditor perf-a11y-auditor seo-auditor; do
+  f="templates/agents/$b.md"; [ -f "$f" ] || continue
+  t="$(fm "$f" tools)"; dt="$(fm "$f" disallowedTools)"
+  if printf '%s' "$t" | grep -qE '\b(Write|Edit)\b'; then
+    fail "$b is a verify-phase auditor but lists Write/Edit in tools"
+  elif printf '%s' "$dt" | grep -qE '\b(Write|Edit)\b'; then
+    pass "$b: read-only (Write/Edit disallowed)"
+  else
+    pass "$b: read-only (Write/Edit not granted)"
+  fi
+done
+
+# --------------------------------------------------------------- 4. skills
+head_ "4. Skill definitions"
+for f in templates/skills/*/SKILL.md templates/tiers/*/skills/*/SKILL.md; do
+  [ -e "$f" ] || continue
+  rel="${f#templates/}"
+  [ -n "$(fm "$f" description)" ] && pass "skill: $rel" || fail "skill: $rel has no description"
+done
+
+head_ "5. Side-effecting skills are not model-invocable"
+# A skill that writes files or runs a suite must not be something Claude can
+# decide to run on its own.
+for s in feature handoff report studio-report debate ci-scaffold security-audit \
+         phase-idea phase-plan phase-test phase-create phase-verify phase-document; do
+  f="templates/skills/$s/SKILL.md"; [ -f "$f" ] || continue
+  if grep -q '^disable-model-invocation:[[:space:]]*true' "$f"; then
+    pass "/$s: disable-model-invocation set"
+  else
+    fail "/$s has side effects but Claude can invoke it unprompted"
+  fi
+done
+
+# ---------------------------------------------------------------- 6. rules
+head_ "6. Path-scoped rules"
+for f in templates/rules/*.md; do
+  b="$(basename "$f" .md)"
+  if sed -n '/^---$/,/^---$/p' "$f" | grep -q '^paths:'; then
+    pass "rule: $b.md is path-scoped"
+  else
+    fail "rule: $b.md has no paths: frontmatter — it would load in every session"
+  fi
+done
+
+# ------------------------------------------------------------ 7. manifests
+head_ "7. Tier manifests"
+for t in $VALID_PLANS; do
+  M="templates/tiers/$t/manifest.conf"
+  [ -f "$M" ] || { fail "tier $t: no manifest"; continue; }
+  # shellcheck source=/dev/null
+  ( . "$M"
+    ok=1
+    for req in TIER_ID TIER_NAME TIER_AGENTS TIER_SKILLS TIER_RULES TIER_PHASES; do
+      [ -n "${!req:-}" ] || { echo "MISSING:$req"; ok=0; }
+    done
+    [ "$TIER_ID" = "$t" ] || echo "IDMISMATCH:$TIER_ID"
+    # Every named resource must resolve, tier override first.
+    for a in $TIER_AGENTS; do
+      [ -f "templates/tiers/$t/agents/$a.md" ] || [ -f "templates/agents/$a.md" ] || echo "NOAGENT:$a"
+    done
+    for s in $TIER_SKILLS; do
+      [ -d "templates/tiers/$t/skills/$s" ] || [ -d "templates/skills/$s" ] || echo "NOSKILL:$s"
+    done
+    for r in $TIER_RULES; do
+      [ -f "templates/tiers/$t/rules/$r.md" ] || [ -f "templates/rules/$r.md" ] || echo "NORULE:$r"
+    done
+    # Duplicates in a manifest install the same file twice and inflate counts.
+    for kind in AGENTS SKILLS RULES; do
+      v="TIER_$kind"
+      dup="$(printf '%s\n' ${!v} | sort | uniq -d | tr '\n' ' ')"
+      [ -n "$dup" ] && echo "DUP:$kind:$dup"
+    done
+    # The installer advertises TIER_OPUS_AGENTS as "where the cost is". If it
+    # disagrees with the frontmatter, that claim is wrong.
+    for a in ${TIER_OPUS_AGENTS:-}; do
+      case " $TIER_AGENTS " in *" $a "*) ;; *) echo "OPUSNOTINTIER:$a"; continue ;; esac
+      m=$(sed -n '/^---$/,/^---$/p' "templates/agents/$a.md" 2>/dev/null | sed -n 's/^model:[[:space:]]*//p' | head -1)
+      [ "$m" = "opus" ] || echo "OPUSCLAIM:$a=$m"
+    done
+    for a in $TIER_AGENTS; do
+      m=$(sed -n '/^---$/,/^---$/p' "templates/agents/$a.md" 2>/dev/null | sed -n 's/^model:[[:space:]]*//p' | head -1)
+      [ "$m" = "opus" ] || continue
+      case " ${TIER_OPUS_AGENTS:-} " in *" $a "*) ;; *) echo "OPUSUNLISTED:$a" ;; esac
+    done
+    # UI-prune lists must name things this tier actually installs.
+    for a in ${TIER_UI_AGENTS:-}; do
+      case " $TIER_AGENTS " in *" $a "*) ;; *) echo "UIAGENT:$a" ;; esac
+    done
+    for s in ${TIER_UI_SKILLS:-}; do
+      case " $TIER_SKILLS " in *" $s "*) ;; *) echo "UISKILL:$s" ;; esac
+    done
+    for r in ${TIER_UI_RULES:-}; do
+      case " $TIER_RULES " in *" $r "*) ;; *) echo "UIRULE:$r" ;; esac
+    done
+    [ "$ok" = 1 ] || true
+  ) > /tmp/qa_manifest_$$ 2>&1
+  if [ -s /tmp/qa_manifest_$$ ]; then
+    while read -r line; do fail "tier $t: $line"; done < /tmp/qa_manifest_$$
+  else
+    pass "tier $t: manifest complete and internally consistent"
+  fi
+  rm -f /tmp/qa_manifest_$$
+  for req in CLAUDE.md.tmpl settings.json.tmpl gate.json; do
+    [ -f "templates/tiers/$t/$req" ] && pass "tier $t: $req present" \
+      || fail "tier $t: $req missing"
+  done
+done
+
+# ------------------------------------------------------- 8. placeholders
+head_ "8. Placeholder coverage"
+# A placeholder nothing substitutes leaves the file containing it inert
+# forever, and configure.sh reports "all resolved" because it only greps for
+# the ones it knows.
+SUBST="$(grep -oE '"[A-Z_]+=\$' configure.sh | tr -d '"=$' ; \
+         grep -oE 's\|\{\{[A-Z_]+\}\}' install.sh | sed 's/s|{{//; s/}}//')"
+USED="$(grep -rhoE '\{\{[A-Z_]+\}\}' templates/ | tr -d '{}' | sort -u)"
+missing=""
+for p in $USED; do
+  printf '%s\n' "$SUBST" | grep -qx "$p" || missing="$missing $p"
+done
+if [ -n "$missing" ]; then
+  fail "placeholders used in templates but never substituted:$missing"
+else
+  pass "every {{PLACEHOLDER}} in templates/ is substituted by install.sh or configure.sh"
+fi
+
+# --------------------------------------------------- 9. docs vs reality
+head_ "9. Documentation consistency"
+for t in $VALID_PLANS; do
+  # shellcheck source=/dev/null
+  . "templates/tiers/$t/manifest.conf"
+  na=$(printf '%s\n' $TIER_AGENTS | wc -w); ns=$(printf '%s\n' $TIER_SKILLS | wc -w)
+  nr=$(printf '%s\n' $TIER_RULES | wc -w)
+  label="$TIER_NAME"
+  row="$(grep -E "^\| \*\*$label\*\* \|" README.md | head -1)"
+  if [ -z "$row" ]; then
+    warn "README has no summary row for $label"
+  else
+    ra=$(printf '%s' "$row" | awk -F'|' '{gsub(/ /,"",$3); print $3}')
+    rs=$(printf '%s' "$row" | awk -F'|' '{gsub(/ /,"",$4); print $4}')
+    rr=$(printf '%s' "$row" | awk -F'|' '{gsub(/ /,"",$5); print $5}')
+    if [ "$ra" = "$na" ] && [ "$rs" = "$ns" ] && [ "$rr" = "$nr" ]; then
+      pass "README $label row matches manifest ($na/$ns/$nr)"
+    else
+      fail "README $label says $ra/$rs/$rr but manifest has $na/$ns/$nr agents/skills/rules"
+    fi
+  fi
+done
+for d in README.md docs/DESIGN-RATIONALE.md docs/SETUP-SPEC.md docs/DESIGN-STACK.md LICENSE; do
+  [ -f "$d" ] && pass "present: $d" || fail "missing: $d"
+done
+
+# ---------------------------------------------- 10. no broken repo links
+head_ "10. Internal links"
+bad=0
+while IFS= read -r link; do
+  [ -e "$link" ] || { fail "broken relative link in docs: $link"; bad=1; }
+done < <(grep -rhoE '\]\((docs/[A-Za-z0-9._/-]+|templates/[A-Za-z0-9._/-]+)\)' README.md docs/*.md \
+         | sed 's/^](//; s/)$//' | sort -u)
+[ "$bad" = 0 ] && pass "all relative doc links resolve"
+
+# Files that ship INTO a project must not link to repo-only paths.
+shipbad=0
+while IFS= read -r f; do
+  grep -qE '\]\(\.\./|\]\(docs/' "$f" && { fail "$f ships into a project but links to a repo-relative path"; shipbad=1; }
+done < <(find templates -name '*.md' -o -name '*.tmpl')
+[ "$shipbad" = 0 ] && pass "shipped templates contain no repo-relative links"
+
+printf '\n\033[1m%d passed, %d failed, %d warnings\033[0m\n' "$PASS" "$FAIL" "$WARN"
+[ "$FAIL" -gt 0 ] && exit 1
+exit 0

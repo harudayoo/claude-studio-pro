@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Codebase + documentation audit. Runs in a script so it costs zero tokens."""
-import json, subprocess, sys
-from pathlib import Path
+import json
+import subprocess
+import sys
 from collections import Counter, defaultdict
+from pathlib import Path
 
 IGNORE = {'.git', 'node_modules', 'vendor', 'dist', 'build', '__pycache__',
           '.venv', 'venv', '.next', 'target', 'storage'}
@@ -16,7 +18,7 @@ DOC_MAP = json.loads(Path('.claude/state/doc-map.json').read_text()) \
 
 def git_epoch(root, rel):
     r = subprocess.run(['git', '-C', str(root), 'log', '-1', '--format=%ct', '--', rel],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, check=False)
     try:
         return int(r.stdout.strip())
     except ValueError:
@@ -47,7 +49,7 @@ def main():
     churn_out = subprocess.run(
         ['git', '-C', str(root), 'log', '--since=1 month ago',
          '--name-only', '--pretty=format:'],
-        capture_output=True, text=True).stdout
+        capture_output=True, text=True, check=False).stdout
     churn = dict(Counter(l for l in churn_out.splitlines() if l.strip()).most_common(20))
 
     largest = {f['path'] for f in sorted(files, key=lambda f: -f['lines'])[:25]}

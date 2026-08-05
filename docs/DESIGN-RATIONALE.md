@@ -4,6 +4,18 @@ subtitle: "A complete architecture and step-by-step build guide for a delegating
 date: "August 2026"
 ---
 
+> **Scope note.** This is the architecture the repository implements, written
+> for the largest configuration. `install.sh --plan max20x` builds the complete
+> 24-agent roster described in §3.3; `--plan max` builds §3.2's "start with
+> nine" plus `qa-runner` and `security-auditor`; `--plan pro` builds the smaller
+> 7-agent pipeline documented in [`SETUP-SPEC.md`](SETUP-SPEC.md).
+>
+> Every tier shares §10's four hooks, §5's memory architecture, and §2's gate
+> discipline unchanged. The tiers differ in roster size and verification
+> fan-out, not in how strict the gates are. Read §0.2, §11 and §14 before
+> choosing a tier — the honest constraints, the token economics and the
+> anti-patterns apply to all three.
+
 # 0. Read this first
 
 ## 0.1 What you are actually building

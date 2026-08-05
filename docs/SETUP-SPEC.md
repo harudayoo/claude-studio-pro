@@ -4,6 +4,14 @@ subtitle: "An executable setup document. Lean agent pipeline, hard token budget,
 date: "August 2026 · v1.0"
 ---
 
+> **Scope note.** This document builds the **Pro** tier by hand — the 7-agent,
+> sequential pipeline. `install.sh --plan pro` produces the same result in one
+> command; read this if you would rather assemble it yourself, or want to
+> understand what the installer is doing.
+>
+> For the Max and Max 20x tiers, see [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md),
+> which describes the full 24-agent architecture the larger tiers implement.
+
 # 0. Instructions to Claude Code
 
 **Read this section fully before doing anything.**

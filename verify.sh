@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 #
-# claude-studio-pro self-test
+# claude-studio self-test
 #
-# Proves the hooks actually fire. Run this after configure.sh and again any
-# time you change a hook or the profile.
+# Proves the hooks actually fire, and that the installed inventory matches the
+# tier that was installed. Run after configure.sh and again any time you change
+# a hook or the profile.
 #
 # A hook you have not watched fire is a hook you do not have.
 #
 set -uo pipefail
 
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="$(pwd)"
 [ "${1:-}" = "--target" ] && { TARGET="$(cd "$2" && pwd)"; shift 2; }
 cd "$TARGET"
@@ -23,7 +25,35 @@ head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 hook() { printf '%s' "$2" | bash ".claude/hooks/$1" 2>/dev/null; }
 rc_of() { printf '%s' "$2" | bash ".claude/hooks/$1" >/dev/null 2>&1; echo $?; }
 
+# ------------------------------------------------------------- installed tier
+read_tier() {
+  [ -f .claude/state/studio.json ] || return 1
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '.tier // empty' .claude/state/studio.json 2>/dev/null
+  else
+    tr -d '\n' < .claude/state/studio.json \
+      | grep -o '"tier"[[:space:]]*:[[:space:]]*"[^"]*"' \
+      | head -1 | sed 's/.*:[[:space:]]*"//; s/"$//'
+  fi
+}
+PLAN="$(read_tier || true)"
+MANIFEST="$SRC/templates/tiers/$PLAN/manifest.conf"
+if [ -n "$PLAN" ] && [ -f "$MANIFEST" ]; then
+  # shellcheck source=/dev/null
+  . "$MANIFEST"
+else
+  TIER_NAME="unknown"; TIER_AGENTS=""; TIER_SKILLS=""; TIER_RULES=""
+  TIER_UI_AGENTS=""; TIER_UI_SKILLS=""; TIER_UI_RULES=""
+fi
+
+printf '\n\033[1mclaude-studio self-test\033[0m  ·  %s plan\n' "$TIER_NAME"
+
 head_ "0. Configuration"
+if [ -n "$PLAN" ] && [ -f "$MANIFEST" ]; then
+  pass "installed tier recorded: $PLAN"
+else
+  fail "cannot read the installed tier from .claude/state/studio.json — re-run install.sh"
+fi
 if grep -rq '{{[A-Z_]*}}' .claude 2>/dev/null; then
   fail "placeholders remain — run ./configure.sh"
   grep -rl '{{[A-Z_]*}}' .claude | sed 's/^/       /'
@@ -79,20 +109,54 @@ else
   printf '  \033[33mSKIP\033[0m not a git repository\n'
 fi
 
-head_ "5. Inventory"
-for n in planner critic test-designer implementer reviewer doc-writer; do
-  [ -f ".claude/agents/$n.md" ] && pass "agent: $n" || fail "agent: $n missing"
-done
-[ -f .claude/agents/qa-runner.md ] && pass "agent: qa-runner" \
-  || printf '  \033[33mSKIP\033[0m qa-runner (removed: no UI)\n'
-for s in feature handoff codebase-map report ci-scaffold security-audit; do
-  [ -f ".claude/skills/$s/SKILL.md" ] && pass "skill: /$s" || fail "skill: /$s missing"
-done
-for r in backend security testing devops; do
-  [ -f ".claude/rules/$r.md" ] && pass "rule: $r.md" || fail "rule: $r.md missing"
-done
-[ -f .claude/rules/frontend.md ] && pass "rule: frontend.md" \
-  || printf '  \033[33mSKIP\033[0m frontend.md (removed: no UI)\n'
+head_ "5. Inventory ($TIER_NAME roster)"
+# A UI-only piece that configure.sh pruned is a SKIP, not a failure.
+is_ui_only() {  # is_ui_only <kind> <name>
+  local list
+  case "$1" in
+    agents) list="${TIER_UI_AGENTS:-}" ;;
+    skills) list="${TIER_UI_SKILLS:-}" ;;
+    rules)  list="${TIER_UI_RULES:-}"  ;;
+  esac
+  case " $list " in *" $2 "*) return 0 ;; esac
+  return 1
+}
+skip() { printf '  \033[33mSKIP\033[0m %s\n' "$1"; }
+
+if [ -z "${TIER_AGENTS:-}" ]; then
+  fail "no manifest for tier '$PLAN' — cannot check the inventory"
+else
+  for n in $TIER_AGENTS; do
+    if [ -f ".claude/agents/$n.md" ]; then pass "agent: $n"
+    elif is_ui_only agents "$n";  then skip "agent: $n (removed: no UI)"
+    else fail "agent: $n missing"; fi
+  done
+  for s in $TIER_SKILLS; do
+    if [ -f ".claude/skills/$s/SKILL.md" ]; then pass "skill: /$s"
+    elif is_ui_only skills "$s";        then skip "skill: /$s (removed: no UI)"
+    else fail "skill: /$s missing"; fi
+  done
+  for r in $TIER_RULES; do
+    if [ -f ".claude/rules/$r.md" ]; then pass "rule: $r.md"
+    elif is_ui_only rules "$r";     then skip "rule: $r.md (removed: no UI)"
+    else fail "rule: $r.md missing"; fi
+  done
+fi
+
+head_ "6. Nothing extra"
+# An agent left behind by a tier switch still costs listing space and can
+# shadow delegation. Report it rather than deleting it.
+if [ -n "${TIER_AGENTS:-}" ] && [ -d .claude/agents ]; then
+  extra=0
+  for f in .claude/agents/*.md; do
+    [ -e "$f" ] || continue
+    n="$(basename "$f" .md)"
+    case " $TIER_AGENTS " in *" $n "*) continue ;; esac
+    fail "unexpected agent: $n (not in the $TIER_NAME roster — left over from another tier?)"
+    extra=1
+  done
+  [ "$extra" = 0 ] && pass "no agents outside the $TIER_NAME roster"
+fi
 
 printf '\n\033[1m%d passed, %d failed\033[0m\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then

@@ -1,2 +1,5 @@
 *.studio.tmp
 .DS_Store
+
+# This repo is itself worked on with Claude Code.
+.claude/settings.local.json

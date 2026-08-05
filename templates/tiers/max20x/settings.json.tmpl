@@ -1,0 +1,43 @@
+{
+  "env": {
+    "MAX_THINKING_TOKENS": "16000",
+
+    "_telemetry_note": "Set CLAUDE_CODE_ENABLE_TELEMETRY to 1 once an OTLP collector is listening. /studio-report's token section reads these metrics; without a collector it falls back to /usage, which is coarser. Enabling this with nothing on the endpoint is harmless but pointless.",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317",
+    "OTEL_LOG_USER_PROMPTS": "0",
+    "OTEL_LOG_TOOL_DETAILS": "1",
+
+    "_agent_teams_note": "Level 3 debate only. Teammates cost roughly 7x a single session. Set to 1 for a specific incident, then set it back.",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "0"
+  },
+  "permissions": {
+    "deny": [
+      "Read(./.env)", "Read(./.env.*)", "Read(./**/*.pem)", "Read(./**/*.key)",
+      "Write(./.env)", "Write(./.env.*)",
+      "Bash(rm -rf /*)", "Bash(git push --force*)", "Bash(*DROP TABLE*)",
+      "Bash(git reset --hard*)"
+    ],
+    "allow": [
+      "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git branch*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Edit|Write",
+        "hooks": [{ "type": "command", "command": ".claude/hooks/gate-check.sh" }] },
+      { "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": ".claude/hooks/filter-output.sh" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write",
+        "hooks": [{ "type": "command", "command": ".claude/hooks/post-edit.sh" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": ".claude/hooks/doc-check.sh" }] }
+    ]
+  }
+}

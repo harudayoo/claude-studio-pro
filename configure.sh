@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# claude-studio-pro configure
+# claude-studio configure
 #
 # Reads docs/setup/PROFILE.md (which YOU have confirmed by running each
 # command) and substitutes the placeholders left behind by install.sh.
@@ -9,8 +9,12 @@
 # the point: a half-configured hook that silently matches nothing is worse
 # than no hook at all.
 #
+# Tier-aware: which pieces get pruned on a project with no UI comes from the
+# installed tier's manifest, not from a list hardcoded here.
+#
 set -euo pipefail
 
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="$(pwd)"
 DRY_RUN=0
 ALLOW_INCOMPLETE=0
@@ -34,6 +38,28 @@ done
 
 P="$TARGET/docs/setup/PROFILE.md"
 [ -f "$P" ] || die "no profile at docs/setup/PROFILE.md — run install.sh first"
+
+# ------------------------------------------------------------- installed tier
+STUDIO_STATE="$TARGET/.claude/state/studio.json"
+read_tier() {
+  [ -f "$STUDIO_STATE" ] || return 1
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '.tier // empty' "$STUDIO_STATE" 2>/dev/null
+  else
+    tr -d '\n' < "$STUDIO_STATE" \
+      | grep -o '"tier"[[:space:]]*:[[:space:]]*"[^"]*"' \
+      | head -1 | sed 's/.*:[[:space:]]*"//; s/"$//'
+  fi
+}
+
+PLAN="$(read_tier || true)"
+if [ -z "$PLAN" ] || [ ! -f "$SRC/templates/tiers/$PLAN/manifest.conf" ]; then
+  c_yel "warning: cannot read the installed tier from .claude/state/studio.json."
+  c_dim "  Falling back to the Pro manifest for UI pruning. Re-run install.sh to fix."
+  PLAN="pro"
+fi
+# shellcheck source=/dev/null
+. "$SRC/templates/tiers/$PLAN/manifest.conf"
 
 if grep -q 'NEEDS_REVIEW' "$P" && [ "$ALLOW_INCOMPLETE" = 0 ]; then
   c_red "PROFILE.md still contains NEEDS_REVIEW:"
@@ -86,7 +112,7 @@ FORMAT_GLOB='*.ts|*.tsx|*.js|*.jsx|*.vue|*.php|*.py|*.go|*.rs'
 TYPECHECK_GLOB='*.ts|*.tsx'
 
 echo
-c_grn "Configuring $TARGET"
+c_grn "Configuring $TARGET  ·  $TIER_NAME plan"
 c_dim "  test:      $TEST_COMMAND"
 c_dim "  single:    $SINGLE_TEST_COMMAND"
 c_dim "  format:    $FORMAT_COMMAND"
@@ -150,7 +176,8 @@ chmod +x "$TARGET/.claude/hooks/"*.sh 2>/dev/null || true
 subst "$TARGET/CLAUDE.md"
 subst "$TARGET/CLAUDE.studio.md"
 
-# Doc map used by the audit script
+# Doc map: source area -> the doc that is supposed to describe it. The audit
+# script reads this to compute staleness. Extend it as the project grows.
 if [ "$DRY_RUN" = 0 ]; then
   mkdir -p "$TARGET/.claude/state"
   {
@@ -159,17 +186,34 @@ if [ "$DRY_RUN" = 0 ]; then
     if [ -n "$FRONTEND_ROOT" ] && [ "$FRONTEND_ROOT" != "NEEDS_REVIEW" ]; then
       printf ',\n  "%s": "docs/design/components.md"' "$FRONTEND_ROOT"
     fi
+    # Keys must stay unique — a repeated key silently wins over the earlier one
+    # when the audit script parses this, which would drop the mapping above.
+    case "${TIER_EXTRA_DOC_DIRS:-}" in
+      *docs/runbooks*) printf ',\n  ".github/workflows": "docs/runbooks/ci.md"' ;;
+    esac
     printf '\n}\n'
   } > "$TARGET/.claude/state/doc-map.json"
   c_dim "  wrote .claude/state/doc-map.json"
 fi
 
 # If there is no UI, drop the UI-only pieces rather than leaving them to rot.
+# Which pieces those are is declared per tier, because a Max 20x install has
+# six UI agents and a Pro install has one.
 if [ "$DRY_RUN" = 0 ] && printf '%s' "$HAS_UI" | grep -qi '^no'; then
-  rm -rf "$TARGET/.claude/skills/web-audit" \
-         "$TARGET/.claude/rules/frontend.md" \
-         "$TARGET/.claude/agents/qa-runner.md"
-  c_yel "  no UI: removed web-audit skill, frontend rule, and qa-runner agent"
+  dropped=""
+  for a in ${TIER_UI_AGENTS:-}; do
+    [ -f "$TARGET/.claude/agents/$a.md" ] || continue
+    rm -f "$TARGET/.claude/agents/$a.md"; dropped="$dropped $a"
+  done
+  for s in ${TIER_UI_SKILLS:-}; do
+    [ -d "$TARGET/.claude/skills/$s" ] || continue
+    rm -rf "$TARGET/.claude/skills/$s"; dropped="$dropped /$s"
+  done
+  for r in ${TIER_UI_RULES:-}; do
+    [ -f "$TARGET/.claude/rules/$r.md" ] || continue
+    rm -f "$TARGET/.claude/rules/$r.md"; dropped="$dropped $r.md"
+  done
+  [ -n "$dropped" ] && c_yel "  no UI: removed$dropped"
 fi
 
 echo

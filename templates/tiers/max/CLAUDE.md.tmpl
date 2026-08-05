@@ -1,0 +1,36 @@
+# {{PROJECT_NAME}}
+
+{{STACK_LINE}}
+
+## Commands
+- Dev: `{{DEV_COMMAND}}`
+- Test: `{{TEST_COMMAND}}`   Single: `{{SINGLE_TEST_COMMAND}}`
+- Lint/format: `{{FORMAT_COMMAND}}`   Types: `{{TYPECHECK_COMMAND}}`
+- Build: `{{BUILD_COMMAND}}`   Dependency audit: `{{DEPENDENCY_AUDIT_COMMAND}}`
+
+## Layout
+- Source: `{{SOURCE_ROOTS}}`
+- Tests: `{{TEST_ROOT}}`
+- Specs and decisions: `docs/specs/`, `docs/adr/`
+- Design tokens: `{{TOKEN_FILE}}`
+
+## Non-negotiables
+- No source edits before an approved plan exists at `docs/specs/<slug>/plan.md`.
+  Check `.claude/state/gate.json`.
+- No phase closes on an assertion. Each closes on a file that exists and is
+  non-empty.
+- Every bug fix starts with a failing test.
+- Every schema change ships a reversible migration and a test.
+- Authorisation, payments, destructive migrations and public API contracts
+  require the `/debate` protocol before the plan is approved.
+- Never edit `.env`, build output, or vendored dependencies.
+
+## Working agreement
+- Start any change with `/feature <description>`. The `conductor` routes it.
+- Run exactly one phase per turn. Never combine phases.
+- Run `/handoff` before ending a session with uncommitted work.
+- Use `/clear` between phases and between unrelated tasks.
+
+## Compact instructions
+When compacting, preserve: the gate state, decisions made this session, and
+file paths already discovered. Discard tool output and exploration transcripts.

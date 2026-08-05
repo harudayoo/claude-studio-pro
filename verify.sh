@@ -158,6 +158,79 @@ if [ -n "${TIER_AGENTS:-}" ] && [ -d .claude/agents ]; then
   [ "$extra" = 0 ] && pass "no agents outside the $TIER_NAME roster"
 fi
 
+head_ "7. Context budget"
+# Claude Code caps how much of the skill name-and-description listing enters
+# context (the blueprint puts it around 1% of the window). Past the cap,
+# descriptions are TRUNCATED — nothing errors, skills just silently stop
+# auto-triggering. This is an estimate from description length; /context and
+# /doctor inside Claude Code are the authority.
+if [ -d .claude/skills ]; then
+  n_skill=0; desc_chars=0
+  for f in .claude/skills/*/SKILL.md; do
+    [ -e "$f" ] || continue
+    n_skill=$((n_skill + 1))
+    d=$(sed -n '/^---$/,/^---$/p' "$f" | sed -n 's/^description:[[:space:]]*//p' | head -1)
+    desc_chars=$((desc_chars + ${#d} + ${#f}))
+  done
+  est=$((desc_chars / 4))
+  printf '  \033[2m%d skills · ~%d tokens of listing (estimate)\033[0m\n' "$n_skill" "$est"
+  # ~2000 tokens is 1% of a 200k window. Warn at 75% of that.
+  if [ "$est" -gt 2000 ]; then
+    fail "skill listing ~${est} tokens — likely past the cap; descriptions may be truncated"
+  elif [ "$est" -gt 1500 ]; then
+    printf '  \033[33mWARN\033[0m listing ~%d tokens — approaching the cap. Run /doctor.\n' "$est"
+  else
+    pass "skill listing within budget (~$est tokens)"
+  fi
+  # Skills the tier did not install are third-party. Name them so their cost is
+  # attributable — this is the number docs/DESIGN-STACK.md asks you to watch.
+  if [ -n "${TIER_SKILLS:-}" ]; then
+    foreign=""
+    for d in .claude/skills/*/; do
+      [ -d "$d" ] || continue
+      n="$(basename "$d")"
+      case " $TIER_SKILLS " in *" $n "*) continue ;; esac
+      foreign="$foreign $n"
+    done
+    [ -n "$foreign" ] && printf '  \033[2mthird-party skills:%s\033[0m\n' "$foreign"
+  fi
+fi
+
+head_ "8. Hook audit"
+# Two hooks on the same event and matcher both fire on every matching call.
+# That is a decision, not a default — see docs/DESIGN-STACK.md section 6.
+if [ ! -f .claude/settings.json ]; then
+  printf '  \033[33mSKIP\033[0m no .claude/settings.json\n'
+elif ! command -v jq >/dev/null 2>&1; then
+  printf '  \033[33mSKIP\033[0m jq not installed\n'
+else
+  for ev in PreToolUse PostToolUse Stop SessionStart UserPromptSubmit; do
+    cnt=$(jq --arg e "$ev" '(.hooks[$e] // []) | length' .claude/settings.json 2>/dev/null || echo 0)
+    [ "${cnt:-0}" -gt 0 ] || continue
+    jq -r --arg e "$ev" '.hooks[$e][] | "\(.matcher // "*")\t\(.hooks[0].command // "?")"' \
+      .claude/settings.json 2>/dev/null | while IFS="$(printf '\t')" read -r m c; do
+        case "$c" in
+          .claude/hooks/*) printf '  \033[2m%-13s %-12s %s\033[0m\n' "$ev" "$m" "$c" ;;
+          *)               printf '  \033[33m%-13s %-12s %s  (third-party)\033[0m\n' "$ev" "$m" "$c" ;;
+        esac
+      done
+    # Same event + same matcher, more than once.
+    dup=$(jq -r --arg e "$ev" '[.hooks[$e][] | .matcher // "*"] | group_by(.)
+                               | map(select(length > 1) | .[0]) | join(",")' \
+          .claude/settings.json 2>/dev/null)
+    if [ -n "$dup" ]; then
+      printf '  \033[33mWARN\033[0m %s: multiple hooks on matcher(s) %s — both fire on every matching call.\n' "$ev" "$dup"
+      printf '       \033[2mDeliberate? Design detection is usually worth more at the VERIFY gate\n'
+      printf '       than on every edit. See docs/DESIGN-STACK.md section 6.\033[0m\n'
+    fi
+  done
+  studio_hooks=$(jq '[.hooks | to_entries[] | .value[] | .hooks[]?
+                      | select(.command // "" | startswith(".claude/hooks/"))] | length' \
+                 .claude/settings.json 2>/dev/null || echo 0)
+  [ "${studio_hooks:-0}" -ge 4 ] && pass "all 4 studio hooks registered" \
+    || fail "only ${studio_hooks:-0} studio hooks registered in settings.json (expected 4)"
+fi
+
 printf '\n\033[1m%d passed, %d failed\033[0m\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then
   printf 'Fix the failures before trusting the pipeline.\n'; exit 1

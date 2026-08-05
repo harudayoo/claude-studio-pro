@@ -213,6 +213,16 @@ if [ "$DRY_RUN" = 0 ] && printf '%s' "$HAS_UI" | grep -qi '^no'; then
     [ -f "$TARGET/.claude/rules/$r.md" ] || continue
     rm -f "$TARGET/.claude/rules/$r.md"; dropped="$dropped $r.md"
   done
+  # CLAUDE.md loads in full every session. A frontend-direction block on a
+  # service or a library is standing cost for nothing.
+  for f in "$TARGET/CLAUDE.md" "$TARGET/CLAUDE.studio.md"; do
+    [ -f "$f" ] || continue
+    grep -q 'studio:frontend-direction:start' "$f" || continue
+    sed -i.studio.bak \
+      '/<!-- studio:frontend-direction:start -->/,/<!-- studio:frontend-direction:end -->/d' "$f" \
+      && rm -f "$f.studio.bak"
+    dropped="$dropped $(basename "$f")#frontend-direction"
+  done
   [ -n "$dropped" ] && c_yel "  no UI: removed$dropped"
 fi
 

@@ -59,6 +59,30 @@ never a literal. Propose it in `docs/specs/<slug>/design.md`, name it by role
 (`--color-danger-subtle`) not by appearance (`--color-light-red`), and add it to
 `{{TOKEN_FILE}}` before the component that uses it.
 
+## Working with a third-party design skill
+
+If this project has installed a design-taste skill — `frontend-design`,
+Impeccable, UI-UX Pro Max, `taste-skill` — it reconciles with this file in
+exactly one direction:
+
+> **The design skill writes the token layer. Components consume tokens.**
+
+When it proposes a palette, a type scale or a set of radii, that output goes
+into `{{TOKEN_FILE}}` or into `docs/specs/<slug>/design.md` as a proposed token.
+It does not go into a component as a literal. Done this way the two reinforce
+each other — the OKLCH-and-one-hue model above is what most of them prescribe
+anyway. Done the other way, `code-reviewer` flags the diff, correctly.
+
+The aesthetic direction in `CLAUDE.md` outranks any skill's preference. If a
+skill wants a typeface or palette the direction rules out, the direction wins;
+change `CLAUDE.md` deliberately or not at all.
+
+Design exploration that writes real component files belongs in the CREATE phase,
+where the gate is already open, or in a scratch directory outside the protected
+source roots. Never widen the gate to make a design tool comfortable.
+
+See [the design-stack playbook](https://github.com/harudayoo/claude-studio-pro/blob/main/docs/DESIGN-STACK.md) for the adoption procedure.
+
 ## Checking conformance
 
 Grep the diff for raw values before closing CREATE:

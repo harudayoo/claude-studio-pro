@@ -8,6 +8,17 @@ paths:
 **Tokens.** Colour, spacing, radius, shadow and type scale come from
 `{{TOKEN_FILE}}`. A literal hex, px or rem in a component is a review blocker.
 
+**Design tooling writes tokens, not components.** Any design skill, plugin or
+generator in use produces the *system* — palette, scale, radii, easings — and
+that output lands in `{{TOKEN_FILE}}`, or in `docs/specs/<slug>/design.md` as a
+proposed token. It never lands as a literal in a component. A generated
+component carrying raw values is the same review blocker as a hand-written one;
+where the value came from is not a defence.
+
+**Design exploration lives outside the protected source roots.** Scratch
+routes, playgrounds and tool-generated drafts are not deliverables. Nothing in a
+sandbox directory ships, and real source must not import from one.
+
 **States.** Every interactive element implements default, hover, focus-visible,
 active, disabled, loading and error. Every collection implements empty and
 error states.

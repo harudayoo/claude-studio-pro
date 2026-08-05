@@ -186,8 +186,10 @@ eleven.
 ```
 
 Exercises every hook with synthetic input, checks the installed inventory
-against your tier's manifest, and flags any agent left behind by a tier switch.
-Expect roughly 36 checks on Pro, 43 on Max, 62 on Max 20x.
+against your tier's manifest, flags any agent left behind by a tier switch,
+estimates your skill-listing cost against the cap, and audits which hooks fire
+on which events — including third-party ones. Expect roughly 38 checks on Pro,
+45 on Max, 64 on Max 20x.
 
 **A hook you have not watched fire is a hook you do not have.**
 
@@ -446,38 +448,62 @@ which is the one thing the pipeline deliberately does not encode.
 | [`nxpatterns/claude-taste-skill`](https://github.com/nxpatterns/claude-taste-skill) | A lighter all-rounder, with per-style variants | MIT |
 | [`emilkowalski/skills`](https://github.com/emilkowalski/skills) (`emil-design-eng`) | Motion and micro-interaction: easing, duration, what should *not* animate | MIT |
 
-**Install one or two, not five.** They overlap heavily and give contradictory
-direction — one rejects Inter outright, another ships a font-pairing database
-that recommends it. Competing taste is worse than no taste, and every skill
-description consumes part of the listing budget Claude Code caps at roughly 1%
-of the context window.
+**Take two, then at most one more.** `frontend-design` for direction and
+`emil-design-eng` for motion cover the two things the pipeline is genuinely
+missing and overlap almost nothing. Then add **either** Impeccable (enforcement)
+**or** UI-UX Pro Max (generation) — never both. They contradict each other: one
+rejects Inter on principle, the other ships a font-pairing database that
+recommends it, and unlike disagreeing *agents* there is no `/debate` judge for
+skills. The arbitration has to happen at install time, by you.
 
-A reasonable pick: `frontend-design` for direction on any tier, plus
-`emil-design-eng` on Max/Max 20x if the product has real motion. Add a heavier
-one only when you can point at UI it would have improved.
+| Tier | Skills installed | Add |
+|---|---|---|
+| Pro | 7 | `frontend-design` |
+| Max | 9 | `frontend-design` + `emil-design-eng` |
+| Max 20x | 14 | those two, plus at most one system skill |
 
-**Wire them into the agents that need them, not the session.** The blueprint's
-pattern is `skills:` frontmatter, which preloads the skill into one agent's
-context instead of every session's listing:
+Four things make this safe, and the repo implements all four:
 
-```yaml
-# .claude/agents/ui-designer.md
-skills:
-  - design-tokens
-  - frontend-design
+- **Direction is locked in `CLAUDE.md`.** Every tier's constitution ships a
+  `frontend-direction` block. `CLAUDE.md` loads in full, every session, ahead of
+  any skill body — so your direction is what the skills decorate rather than
+  decide. `configure.sh` strips the block on projects with no UI.
+- **The token layer is the contract.** `frontend.md` now says design tooling
+  writes `{{TOKEN_FILE}}`, never literals into components — a generated
+  component carrying raw values is the same review blocker as a hand-written
+  one. `code-reviewer` enforces it.
+- **The gate does not move.** Impeccable's live editing will be blocked outside
+  the `create` phase. That is the gate working. Iterate during CREATE, or in a
+  scratch directory outside your source roots — never by widening
+  `gate-check.sh`.
+- **`verify.sh` measures the cost.** It estimates the skill-listing total,
+  warns as you approach the cap Claude Code truncates at, names every
+  third-party skill, and flags two hooks firing on the same event and matcher —
+  which is what happens when Impeccable's detector lands next to `post-edit.sh`.
+
+```
+7. Context budget
+  18 skills · ~1185 tokens of listing (estimate)
+  third-party skills: emil-design-eng impeccable taste-skill ui-ux-pro-max
+
+8. Hook audit
+  PostToolUse   Edit|Write   .claude/hooks/post-edit.sh
+  PostToolUse   Edit|Write   .claude/skills/impeccable/hooks/detect.sh  (third-party)
+  WARN PostToolUse: multiple hooks on matcher(s) Edit|Write — both fire on every matching call.
 ```
 
-**Reconcile them with the token layer.** These skills generate their own colour
-and type systems; `.claude/rules/frontend.md` says every visual value comes from
-`{{TOKEN_FILE}}` and a raw hex is a review blocker. Let the design skill produce
-the *system* and write it into your token file — then components still consume
-tokens. A design skill that writes literals straight into components defeats the
-rule, and `code-reviewer` will correctly flag it.
+Studio-owned files and third-party ones stay separable: `install.sh --force`
+preserves foreign hooks and foreign skills, and `--uninstall` removes only what
+the tier's manifest listed. A design plugin survives a pipeline upgrade, and
+rolling one back is a first-class outcome.
 
-Studio-owned files and third-party ones stay separate: `install.sh --force`
-preserves foreign hook entries and foreign skills, and `--uninstall` removes
-only what the tier's manifest listed. A design plugin's hook survives a pipeline
-upgrade.
+**Adopt one at a time and measure it.**
+[`docs/DESIGN-STACK.md`](docs/DESIGN-STACK.md) is the full procedure — the
+picks, the `/context` and `/doctor` loop, the rollback criteria, and the signal
+that actually matters: these skills earn their keep by moving design decisions
+*earlier*, into PLAN where they are cheap. If your verify phase is still full of
+design findings after adopting one, it is decorating the output rather than
+improving the input.
 
 ---
 
@@ -575,6 +601,9 @@ Two rules of thumb regardless of tier:
   this repo implements: the primitive-selection heuristic, the token cost model,
   the twelve levers, the three debate levels, and the complete 24-agent roster.
   Read this before changing a tier's shape.
+- [`docs/DESIGN-STACK.md`](docs/DESIGN-STACK.md) — which third-party design
+  skills to add, how to adopt them without loosening a gate, and how to tell
+  whether one earned its listing space.
 - [`docs/SETUP-SPEC.md`](docs/SETUP-SPEC.md) — the step-by-step build of the Pro
   tier, if you would rather assemble it by hand than run the installer.
 

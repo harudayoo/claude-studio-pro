@@ -361,7 +361,7 @@ detect_stack() {
           | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' \
           | head -1 | sed 's/.*:[[:space:]]*"//; s/"$//')
     fi
-    [ -n "${n:-}" ] && PROJECT_NAME="$n"
+    if [ -n "${n:-}" ]; then PROJECT_NAME="$n"; fi
   fi
 }
 
